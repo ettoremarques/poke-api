@@ -1,45 +1,61 @@
 const { Router } = require("express");
-const axios = require('axios')
+
+const axiosInstance = require("../../axiosInstance");
 
 const router = Router();
 
-const httpsOptions = {
-  hostname: "pokeapi.co",
-  method: "GET",
-  path: "/api/v2/pokemon",
-};
-
-const axiosInstance = axios.create({
-  baseUrl: 'https://pokeapi.co/api/v2/pokemon'
-})
-
-router.get("/", (req, res) => {
-  const options = {
-    ...httpsOptions,
-    path: httpsOptions.path + "?offset=0&limit=5000",
+router.get("/list", (req, res) => {
+  const callback = (result) => {
+    res.status(200).json(result);
   };
 
-  let body = "";
+  const error = () => {
+    res.status(400);
+  };
 
-  const request = axiosInstance.get('')
-
-  const request = https.request(options, (response) => {
-    response.on("data", (chunk) => {
-      body += chunk;
-    });
-
-    response.on("end", function () {
-      const response = JSON.parse(body);
-      console.log("Got a response: ", response.results);
-      res.json(response.results);
-    });
-  });
-
-  request.on("error", (error) => {
-    console.error(error);
-  });
-
-  request.end();
+  getPokemons(req, callback, error);
 });
 
 module.exports = router;
+
+function getPokemons(req, cb, err) {
+  const params = {
+    offset: parseInt(req.query.offset),
+    limit: 20,
+  };
+
+  return axiosInstance
+    .get("/", { params })
+    .then((pokemons) => {
+      handlePokemonData(pokemons, params, cb);
+    })
+    .catch(() => {
+      err();
+    });
+}
+
+const handlePokemonData = (pokemons, params, cb) => {
+  const pokemonsPromisesArray = [];
+
+  pokemons.data.results.forEach((pokemon) => {
+    pokemonsPromisesArray.push(axios.get(pokemon.url));
+  });
+
+  Promise.all(pokemonsPromisesArray).then((pokemonsData) => {
+    const pokemonsArray = pokemonsData.map((pokemon) => {
+      const { name, sprites, id, types } = pokemon.data;
+
+      const remodeledTypes = types.map((type) => type.type.name);
+      const defaultSprite = sprites.front_default;
+
+      return { id, name, sprite: defaultSprite, types: remodeledTypes };
+    });
+
+    const result = {
+      pokemons: pokemonsArray,
+      nextOffset: params.offset + params.limit,
+    };
+
+    cb(result);
+  });
+};
